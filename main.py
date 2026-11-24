@@ -1,22 +1,28 @@
-from util.my_chunk import Chunk
+from util.my_chunk import Chunk, ChunkGeometry
 import math
 import os
 import sys
 import glm
 import moderngl
 import pygame
+import concurrent.futures 
+import threading
 
 os.environ['SDL_WINDOWS_DPI_AWARENESS'] = 'permonitorv2'
 
 pygame.init()
 pygame.display.set_mode((800, 800), flags=pygame.OPENGL | pygame.DOUBLEBUF, vsync=True)
-
+# Called AFTER pygame init
+ChunkGeometry.setup()
 
 class Scene:
     SENSITIVITY = 6
     SPEED = 10
 
     def __init__(self):
+        # pooling
+        #self.chunk_thread_pool = concurrent.futures.ThreadPoolExecutor()
+
         # world info
         self.chunks = {}
         self.time = 0
@@ -99,21 +105,38 @@ class Scene:
         self.program['lightSource'] = light_pos
         self.program['amb'] = 0.3
         self.program['camera'].write(camera)
-        
-        for chunk in self.chunks.values():
-            chunk.render()
+
+        eye = self.pos
+        eye_chunk = (int(eye[0]/16), int(eye[1]/16), int(eye[2]/16))
+        for i in range(eye_chunk[0] - 5, eye_chunk[0] + 5):
+            for j in range(eye_chunk[1] - 5, eye_chunk[1] + 5):
+                for k in range(eye_chunk[2] - 5, eye_chunk[2] + 5):
+                    req_chunk = (i, j, k)
+                    if req_chunk in self.chunks:
+                        chunk = self.chunks[req_chunk]
+                        chunk.render()
+
+    def create_or_load_chunk(self, location):
+        my_chunk = Chunk(self.program, location)
+        my_chunk.create_mesh()
+        self.chunks[location] = my_chunk
 
     def gen_chunks(self):
         eye = self.pos
         eye_chunk = (int(eye[0]/16), int(eye[1]/16), int(eye[2]/16))
-        for i in range(eye_chunk[0] - 1, eye_chunk[0] + 1):
-            for j in range(eye_chunk[1] - 1, eye_chunk[1] + 1):
-                for k in range(eye_chunk[2] - 1, eye_chunk[2] + 1):
+        for i in range(eye_chunk[0] - 5, eye_chunk[0] + 5):
+            for j in range(eye_chunk[1] - 5, eye_chunk[1] + 5):
+                for k in range(eye_chunk[2] - 5, eye_chunk[2] + 5):
                     req_chunk = (i, j, k)
                     if req_chunk not in self.chunks:
-                        my_chunk = Chunk(self.program, (i, j, k))
-                        my_chunk.create_mesh()
-                        self.chunks[req_chunk] = my_chunk
+                        #new_buffer = self.ctx.buffer(reserve=6488064)
+                        #new_va = self.ctx.vertex_array(self.program, [(new_buffer, "3f 3f 3f 2f", "in_vertex", "in_normal", "in_color", "in_uv")])
+                        self.create_or_load_chunk(req_chunk)
+                        #t = threading.Thread(target=self.create_or_load_chunk, args=(req_chunk, new_buffer))
+                        #t.start()
+                        #print("Queued geneeration of chunk", req_chunk)
+                        #self.chunk_thread_pool.submit(self.create_or_load_chunk, req_chunk, new_buffer)
+                        
 
 
 # Setup
@@ -158,6 +181,7 @@ while True:
 
     scene.time += dt
     scene.gen_chunks()
+    #print(scene.chunks)
     scene.render()
 
     pygame.display.flip()
