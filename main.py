@@ -197,14 +197,11 @@ class ChunkGeometry:
                             for elt in ChunkGeometry.NORMALS[side]:
                                 my_vertices.append(elt)
 
-                            mix_col = (0, 0, 0)
-                            mix_strength = 0    
+                            mix_col = (1, 1, 1)
                             if side == Sides.TOP and c_block.type == Blocks.GRASS_BLOCK:
-                                mix_col = (0.1, 0.2, 0.05)
-                                mix_strength = 0.9
+                                mix_col = (0.3, 0.6, 0.05)
                             for elt in mix_col:
                                 my_vertices.append(elt)
-                            my_vertices.append(mix_strength)
 
                             # Add UV info
                             for elt in uvs[index]:
@@ -216,7 +213,7 @@ class ChunkGeometry:
             self.vbo = self.ctx.buffer(np_vertices.astype('f4').tobytes())
 
     def vertex_array(self, program):
-        return self.ctx.vertex_array(program, [(self.vbo, "3f 3f 3f f 2f", "in_vertex", "in_normal", "in_color", "in_color_strength", "in_uv")])  
+        return self.ctx.vertex_array(program, [(self.vbo, "3f 3f 3f 2f", "in_vertex", "in_normal", "in_color", "in_uv")])  
 
     def has_items(self):
         return self.vbo
@@ -296,20 +293,17 @@ class Scene:
                 layout (location = 0) in vec3 in_vertex;
                 layout (location = 1) in vec3 in_normal;
                 layout (location = 2) in vec3 in_color;
-                layout (location = 3) in float in_color_strength;
-                layout (location = 4) in vec2 in_uv;
+                layout (location = 3) in vec2 in_uv;
 
                 out vec4 v_vertex;
                 out vec3 v_normal;
                 out vec3 v_color;
-                out float cStrength;
                 out vec2 texCoord;
 
                 void main() {
                     v_vertex = transform * vec4(in_vertex, 1.0);
                     v_normal = in_normal;
                     v_color = in_color;
-                    cStrength = in_color_strength;
                     texCoord = in_uv;
 
                     gl_Position = camera * v_vertex;
@@ -320,24 +314,26 @@ class Scene:
 
                 uniform sampler2D Texture;
                 uniform vec3 lightSource;
+                uniform float amb;
 
                 in vec4 v_vertex;
                 in vec3 v_normal;
                 in vec3 v_color;
-                in float cStrength;
                 in vec2 texCoord;
 
                 layout (location = 0) out vec4 out_color;
 
                 void main() {
-                    float amb = 0.25;
-
                     vec3 light_d = normalize(lightSource - vec3(v_vertex));
                     float dif = max(0, dot(normalize(v_normal), light_d));
 
                     float light = amb + dif;
 
-                    out_color = texture(Texture, texCoord) * light * (1 - cStrength) + vec4(v_color * cStrength, 1.0);
+                    vec4 texture_col = texture(Texture, texCoord);
+                    if (texture_col.a < 0.01) {
+                        discard;
+                    }
+                    out_color = vec4(light * (vec3(texture_col) * v_color), texture_col.a);
                 }
             ''',
         )
@@ -355,8 +351,9 @@ class Scene:
         self.ctx.enable(self.ctx.DEPTH_TEST)
 
         # Update sun position / camera pos
-        light_pos = glm.vec3(0, 0, 128)
+        light_pos = glm.vec3(0, 0, 70)
         self.program['lightSource'] = light_pos
+        self.program['amb'] = 0.5
         self.program['camera'].write(camera)
         
         for chunk in self.chunks.values():
