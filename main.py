@@ -1,19 +1,15 @@
-from util.my_chunk import Chunk, ChunkGeometry
 import math
-import os
 import sys
 import glm
 import moderngl
-import pygame
 import concurrent.futures 
 import threading
-
+import pygame
+import time
+from util.my_chunk import Chunk, ChunkGeometry
+import os
 os.environ['SDL_WINDOWS_DPI_AWARENESS'] = 'permonitorv2'
 
-pygame.init()
-pygame.display.set_mode((800, 800), flags=pygame.OPENGL | pygame.DOUBLEBUF, vsync=True)
-# Called AFTER pygame init
-ChunkGeometry.setup()
 
 class Scene:
     SENSITIVITY = 6
@@ -21,11 +17,14 @@ class Scene:
 
     def __init__(self):
         # pooling
-        #self.chunk_thread_pool = concurrent.futures.ThreadPoolExecutor()
+        self.chunk_thread_pool = concurrent.futures.ThreadPoolExecutor()
+        self.queued_chunks = {}
 
         # world info
         self.chunks = {}
         self.time = 0
+        self.dupes = 0
+        self.chunk_no = 0
 
         self.ctx = moderngl.get_context()
 
@@ -114,74 +113,93 @@ class Scene:
                     req_chunk = (i, j, k)
                     if req_chunk in self.chunks:
                         chunk = self.chunks[req_chunk]
+                        chunk.update_mesh_st_safe()
                         chunk.render()
 
+
     def create_or_load_chunk(self, location):
+        #print("Hi", threading.current_thread(), __name__)
         my_chunk = Chunk(self.program, location)
-        my_chunk.create_mesh()
+        #if location in self.chunks:
+        #    self.dupes += 1
+        #    print(self.dupes, " created a chunk we didn't need!,", location)
+        #else:
+        #    self.chunk_no += 1
+        #    print("Adding chunk we need @ ", location, " (Chunk no )", self.chunk_no)
         self.chunks[location] = my_chunk
 
+    #def test(self, f):
+    #    print("Hi", f, threading.current_thread())
+
     def gen_chunks(self):
+        c = time.perf_counter_ns()
         eye = self.pos
         eye_chunk = (int(eye[0]/16), int(eye[1]/16), int(eye[2]/16))
         for i in range(eye_chunk[0] - 5, eye_chunk[0] + 5):
             for j in range(eye_chunk[1] - 5, eye_chunk[1] + 5):
                 for k in range(eye_chunk[2] - 5, eye_chunk[2] + 5):
                     req_chunk = (i, j, k)
-                    if req_chunk not in self.chunks:
-                        #new_buffer = self.ctx.buffer(reserve=6488064)
-                        #new_va = self.ctx.vertex_array(self.program, [(new_buffer, "3f 3f 3f 2f", "in_vertex", "in_normal", "in_color", "in_uv")])
-                        self.create_or_load_chunk(req_chunk)
-                        #t = threading.Thread(target=self.create_or_load_chunk, args=(req_chunk, new_buffer))
-                        #t.start()
-                        #print("Queued geneeration of chunk", req_chunk)
-                        #self.chunk_thread_pool.submit(self.create_or_load_chunk, req_chunk, new_buffer)
+                    if req_chunk not in self.chunks and req_chunk not in self.queued_chunks:
+                        #print(len(self.chunks), "We need to create chunk ", req_chunk)
+                        future_chunk = self.chunk_thread_pool.submit(self.create_or_load_chunk, req_chunk)
+                        #future_chunk.add_done_callback(self.test)
+                        self.queued_chunks[req_chunk] = future_chunk
+                        #self.create_or_load_chunk(req_chunk)
+        print(time.perf_counter_ns() - c, "Gen-chunks time")
                         
-
-
 # Setup
-scene = Scene()
-clock = pygame.Clock()
-pygame.event.set_grab(True)
-pygame.mouse.set_visible(False)
+if __name__ == '__main__':
+    pygame.init()
+    pygame.display.set_mode((800, 800), flags=pygame.OPENGL | pygame.DOUBLEBUF, vsync=True)
+    # Called AFTER pygame init
+    ChunkGeometry.setup()
 
-while True:    
-    dt = clock.tick(120)/1000
+    scene = Scene()
+    clock = pygame.Clock()
+    pygame.event.set_grab(True)
+    pygame.mouse.set_visible(False)
 
-    #pygame.mouse.set_pos(0, 0)
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            pygame.quit()
-            sys.exit()
-        if event.type == pygame.MOUSEMOTION:
-            scene.looking = glm.rotate(scene.looking, dt*(math.pi*-event.rel[0]/180)*Scene.SENSITIVITY, (0, 0, 1))
-            
-            flat_view = glm.vec3(scene.looking)
-            flat_view[2] = 0
-            axis = glm.cross(flat_view, (0, 0, 1))
-            scene.looking = glm.rotate(scene.looking, dt*(math.pi*-event.rel[1]/180)*Scene.SENSITIVITY, axis)
+    while True:    
+        dt = clock.tick(120)/1000
 
-    keys = pygame.key.get_pressed()
-    velocity = glm.vec3(0.0)
-    to_go = glm.vec3(scene.looking)
-    to_go[2] = 0
-    if keys[pygame.K_w]:
-        velocity += glm.normalize(to_go)    
-    if keys[pygame.K_a]:
-        velocity -= glm.normalize(glm.cross(to_go, (0, 0, 1)))
-    if keys[pygame.K_s]:
-        velocity -= glm.normalize(to_go)    
-    if keys[pygame.K_d]:
-        velocity += glm.normalize(glm.cross(to_go, (0, 0, 1)))
-    if keys[pygame.K_SPACE]:
-        scene.pos[2] += dt * Scene.SPEED
-    if keys[pygame.K_LCTRL]:
-        scene.pos[2] -=  dt * Scene.SPEED
-    scene.pos += velocity * dt * Scene.SPEED
+        # SERVER SHENANIGANS (MULTI_THREADABLE)
+        scene.gen_chunks()
 
-    scene.time += dt
-    scene.gen_chunks()
-    #print(scene.chunks)
-    scene.render()
+        # CLIENT SHENANIGANS
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.MOUSEMOTION:
+                scene.looking = glm.rotate(scene.looking, dt*(math.pi*-event.rel[0]/180)*Scene.SENSITIVITY, (0, 0, 1))
+                
+                flat_view = glm.vec3(scene.looking)
+                flat_view[2] = 0
+                axis = glm.cross(flat_view, (0, 0, 1))
+                scene.looking = glm.rotate(scene.looking, dt*(math.pi*-event.rel[1]/180)*Scene.SENSITIVITY, axis)
 
-    pygame.display.flip()
+        keys = pygame.key.get_pressed()
+        velocity = glm.vec3(0.0)
+        to_go = glm.vec3(scene.looking)
+        to_go[2] = 0
+        if keys[pygame.K_w]:
+            velocity += glm.normalize(to_go)    
+        if keys[pygame.K_a]:
+            velocity -= glm.normalize(glm.cross(to_go, (0, 0, 1)))
+        if keys[pygame.K_s]:
+            velocity -= glm.normalize(to_go)    
+        if keys[pygame.K_d]:
+            velocity += glm.normalize(glm.cross(to_go, (0, 0, 1)))
+        if keys[pygame.K_SPACE]:
+            scene.pos[2] += dt * Scene.SPEED
+        if keys[pygame.K_LCTRL]:
+            scene.pos[2] -=  dt * Scene.SPEED
+        scene.pos += velocity * dt * Scene.SPEED
+        scene.time += dt
+
+        #print(Chunk.total_gen / Chunk.samples, Chunk.total_geo / Chunk.samples, "Chunk:Gen, Chunk:Geo")
+        scene.render()
+
+        pygame.display.flip()
+        print("Tick done!", dt)
+        #exit()

@@ -8,6 +8,7 @@ import numpy as np
 import glm
 import noise
 import random
+import time
 
 class ChunkGeometry:
     PIX_V = [(-0.5, -0.5, 0.5), 
@@ -114,6 +115,8 @@ class ChunkGeometry:
                             index += 1
 
         self.np_vertices = np.array(temp_vertices)
+
+    def update_vbo_st_safe(self):
         if self.np_vertices.shape[0] > 0:
             self.vbo = self.ctx.buffer(self.np_vertices.astype('f4').tobytes())
 
@@ -124,10 +127,14 @@ class ChunkGeometry:
 
         
 class Chunk:
+    samples = 0
+    total_gen = 0
+    total_geo = 0
     SCALE = 100
 
     def __init__(self, program, position):
         # Metadata
+        self.dirty = 0
         self.program = program
         self.position = position
         self.transform = glm.translate(glm.mat4(1.0), (position[0]*16, position[1]*16, position[2]*16))
@@ -148,8 +155,14 @@ class Chunk:
                 w.append(t)
             self.blocks.append(w)
 
+        Chunk.samples += 1
+        k = time.perf_counter_ns()
         self.generate()
+        Chunk.total_gen += time.perf_counter_ns() - k 
+        k = time.perf_counter_ns()
         self.update_geometry()
+        Chunk.total_geo += time.perf_counter_ns() - k
+
 
     def generate(self):
         #print("Generating chunk", self.position)
@@ -161,13 +174,20 @@ class Chunk:
                         self.blocks[i][j][k] = Cube(self.program, glm.translate(glm.mat4(1.0), (i, j, k)), (0.0, 0.5, random.random()), Blocks.GRASS_BLOCK)
                     else:
                         break
+        self.dirty = 1
 
     def update_geometry(self):
         self.geometry.update_vertices(self.blocks)
 
-    def create_mesh(self): 
-        if self.geometry.vbo is not None:
-            self.mesh = Mesh(self.program, self.geometry, texture=ChunkGeometry.TEXTURE).change_me(self.transform)
+    def _update_geo_buffers_st_safe(self):
+        self.geometry.update_vbo_st_safe()
+
+    def update_mesh_st_safe(self): 
+        if self.dirty == 1:
+            self._update_geo_buffers_st_safe() 
+            if self.geometry.vbo is not None:
+                self.mesh = Mesh(self.program, self.geometry, texture=ChunkGeometry.TEXTURE).change_me(self.transform)
+        self.dirty = 0
 
     def render(self):
         if self.mesh:
