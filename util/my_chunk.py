@@ -8,7 +8,7 @@ import numpy as np
 import glm
 import noise
 import random
-import time
+#import time
 
 class ChunkGeometry:
     PIX_V = [(-0.5, -0.5, 0.5), 
@@ -127,7 +127,6 @@ class ChunkGeometry:
 
         
 class Chunk:
-    samples = 0
     total_gen = 0
     total_geo = 0
     SCALE = 100
@@ -155,13 +154,8 @@ class Chunk:
                 w.append(t)
             self.blocks.append(w)
 
-        Chunk.samples += 1
-        k = time.perf_counter_ns()
         self.generate()
-        Chunk.total_gen += time.perf_counter_ns() - k 
-        k = time.perf_counter_ns()
         self.update_geometry()
-        Chunk.total_geo += time.perf_counter_ns() - k
 
 
     def generate(self):
