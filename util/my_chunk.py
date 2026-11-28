@@ -8,7 +8,6 @@ import numpy as np
 import glm
 import noise
 import random
-#import time
 
 class ChunkGeometry:
     PIX_V = [(-0.5, -0.5, 0.5), 
@@ -177,11 +176,14 @@ class Chunk:
         self.geometry.update_vbo_st_safe()
 
     def update_mesh_st_safe(self): 
+        success = False
         if self.dirty == 1:
+            success = True
             self._update_geo_buffers_st_safe() 
             if self.geometry.vbo is not None:
                 self.mesh = Mesh(self.program, self.geometry, texture=ChunkGeometry.TEXTURE).change_me(self.transform)
         self.dirty = 0
+        return success
 
     def render(self):
         if self.mesh:

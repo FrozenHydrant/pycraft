@@ -36,15 +36,18 @@ class Scene:
         self.program['amb'] = 0.3
         self.program['camera'].write(camera)
 
-        #v = time.perf_counter_ns()
         eye_chunk = (int(eye[0]/16), int(eye[1]/16), int(eye[2]/16))
+        can_mesh_chunk = True
         for i in range(eye_chunk[0] - 5, eye_chunk[0] + 5):
             for j in range(eye_chunk[1] - 5, eye_chunk[1] + 5):
                 for k in range(eye_chunk[2] - 5, eye_chunk[2] + 5):
                     req_chunk = (i, j, k)
                     if req_chunk in chunks:
                         chunk = chunks[req_chunk]
-                        chunk.update_mesh_st_safe()
+                        if can_mesh_chunk:
+                            s = chunk.update_mesh_st_safe()
+                            if s:
+                                can_mesh_chunk = False
                         chunk.render()
 
         #tv = time.perf_counter_ns() - v
