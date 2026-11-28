@@ -82,7 +82,7 @@ class ServerWorld:
     def _logic_loop(self):
         while True:
             self.gen_chunks()
-            time.sleep(0.05)
+            time.sleep(0.02)
 
     def start(self):
         self.thread = threading.Thread(target=self._logic_loop)
@@ -98,9 +98,11 @@ class ServerWorld:
                     req_chunk = (i, j, k)
                     if req_chunk not in self.chunks and req_chunk not in self.queued_chunks:
                         #print(len(self.chunks), "We need to create chunk ", req_chunk)
+                        #self.create_or_load_chunk(req_chunk)
                         future_chunk = self.chunk_thread_pool.submit(self.create_or_load_chunk, req_chunk)
                         #future_chunk.add_done_callback(self.test)
                         self.queued_chunks[req_chunk] = future_chunk
+                        return
                         #self.create_or_load_chunk(req_chunk)
         #print(time.perf_counter_ns() - c, "Gen-chunks time")
 
